@@ -21,7 +21,6 @@ public sealed partial class SiliconLawUi : FancyWindow
     private void AddNewLaw()
     {
         var newLaw = new SiliconLaw();
-        newLaw.Order = FixedPoint2.New(_laws.Count + 1);
         _laws.Add(newLaw);
         SetLaws(_laws);
     }
@@ -30,10 +29,10 @@ public sealed partial class SiliconLawUi : FancyWindow
     {
         _laws = sLaws;
         LawContainer.RemoveAllChildren();
-        foreach (var law in sLaws.OrderBy(l => l.Order))
+        foreach (var law in sLaws)
         {
             var lawControl = new SiliconLawContainer();
-            lawControl.SetLaw(law);
+            lawControl.SetLaw(law, "TODO");
             lawControl.MoveLawDown += MoveLawDown;
             lawControl.MoveLawUp += MoveLawUp;
             lawControl.DeleteAction += DeleteLaw;
@@ -61,7 +60,6 @@ public sealed partial class SiliconLawUi : FancyWindow
             return;
         }
 
-        _laws[index].Order += FixedPoint2.New(1);
         SetLaws(_laws);
     }
 
@@ -78,7 +76,6 @@ public sealed partial class SiliconLawUi : FancyWindow
             return;
         }
 
-        _laws[index].Order += FixedPoint2.New(-1);
         SetLaws(_laws);
     }
 

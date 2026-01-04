@@ -1,13 +1,12 @@
-﻿using Content.Shared.FixedPoint;
+using Robust.Shared.Serialization;
 using Content.Shared.Silicons.Laws.LawFormats;
 using Robust.Shared.Prototypes;
-using Robust.Shared.Serialization;
 
 namespace Content.Shared.Silicons.Laws;
 
 [Virtual, DataDefinition]
 [Serializable, NetSerializable]
-public partial class SiliconLaw : IComparable<SiliconLaw>, IEquatable<SiliconLaw>
+public partial class SiliconLaw : IEquatable<SiliconLaw>
 {
     /// <summary>
     /// A locale string which is the source-of-truth for the verbatim text of this law.
@@ -17,44 +16,41 @@ public partial class SiliconLaw : IComparable<SiliconLaw>, IEquatable<SiliconLaw
     public string LawString = string.Empty;
 
     /// <summary>
-    /// The order of the law in the sequence.
-    /// Also is the identifier if <see cref="LawIdentifierOverride"/> is null.
-    /// </summary>
-    /// <remarks>
-    /// This is a fixedpoint2 only for the niche case of supporting laws that go between 0 and 1.
-    /// Funny.
-    /// </remarks>
-    [DataField(required: true)]
-    public FixedPoint2 Order;
-
-    /// <summary>
-    /// An identifier that overrides <see cref="Order"/> in the law menu UI.
-    /// </summary>
-    [DataField]
-    public string? LawIdentifierOverride;
-
-    /// <summary>
-    /// This controls how the printed law is presented to the player.
-    /// This must never affect the verbatim meaning of the law.
+    /// How the printed law is presented to the player.
+    /// Must never affect the verbatim meaning of the law.
     /// </summary>
     [DataField]
     public ProtoId<LawFormatPrototype> LawFormat = "DefaultLawFormat";
 
-    public int CompareTo(SiliconLaw? other)
-    {
-        if (other == null)
-            return -1;
+    /// <summary>
+    /// Whether this law is ignored for the purposes of auto-numbering laws in a lawset.
+    /// Specifically, the number of the law after this one will be that of the law before it +1, rather than +2.
+    /// Used optionally together with <see cref="CustomIdentifier"/>.
+    /// Ignored if <see cref="CustomIdentifier"/> is not set. This is to disallow two laws with same ID in one lawset.
+    /// </summary>
+    [DataField]
+    public bool AutonumberingExempt = false;
 
-        return Order.CompareTo(other.Order);
-    }
+    /// <summary>
+    /// Optional custom identifier that overrides the by-default number automatically assigned this law in a lawset.
+    /// Useful for corrupted (or otherwise irregular) lawsets.
+    /// Can be used together with <see cref="AutonumberingExempt"/> to leave original ordering unaffected.
+    /// </summary>
+    [DataField]
+    public string? CustomIdentifier = null;
+
+    /// <summary>
+    /// Does this law contribute to incrementing the autonumbering of law identifiers on its lawset.
+    /// </summary>
+    public bool IncrementsAutonumbering => CustomIdentifier is null || !AutonumberingExempt;
 
     public bool Equals(SiliconLaw? other)
     {
         if (other == null)
             return false;
         return LawString == other.LawString
-               && Order == other.Order
-               && LawIdentifierOverride == other.LawIdentifierOverride
+               && AutonumberingExempt == other.AutonumberingExempt
+               && CustomIdentifier == other.CustomIdentifier
                && LawFormat == other.LawFormat;
     }
 
@@ -67,7 +63,7 @@ public partial class SiliconLaw : IComparable<SiliconLaw>, IEquatable<SiliconLaw
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(LawString, Order, LawIdentifierOverride, LawFormat);
+        return HashCode.Combine(LawString, LawFormat, AutonumberingExempt, CustomIdentifier);
     }
 
     /// <summary>
@@ -78,9 +74,9 @@ public partial class SiliconLaw : IComparable<SiliconLaw>, IEquatable<SiliconLaw
         return new SiliconLaw()
         {
             LawString = LawString,
-            Order = Order,
-            LawIdentifierOverride = LawIdentifierOverride,
-            LawFormat = LawFormat
+            LawFormat = LawFormat,
+            AutonumberingExempt = AutonumberingExempt,
+            CustomIdentifier = CustomIdentifier
         };
     }
 }

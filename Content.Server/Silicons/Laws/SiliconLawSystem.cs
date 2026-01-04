@@ -106,7 +106,7 @@ public sealed class SiliconLawSystem : SharedSiliconLawSystem
         TryComp(uid, out IntrinsicRadioTransmitterComponent? intrinsicRadio);
         var radioChannels = intrinsicRadio?.Channels;
 
-        var state = new SiliconLawBuiState(GetLaws(uid).Laws, radioChannels);
+        var state = new SiliconLawBuiState(GetLaws(uid), radioChannels);
         _userInterface.SetUiState(args.Entity, SiliconLawsUiKey.Key, state);
     }
 
@@ -120,11 +120,7 @@ public sealed class SiliconLawSystem : SharedSiliconLawSystem
         if (args.Handled)
             return;
 
-        if (component.Lawset == null)
-            component.Lawset = GetLawset(component.Laws);
-
-        args.Laws = component.Lawset;
-
+        args.Laws = GetLawset(component);
         args.Handled = true;
     }
 
@@ -142,34 +138,64 @@ public sealed class SiliconLawSystem : SharedSiliconLawSystem
             component.Subverted = true;
 
             // new laws may allow antagonist behaviour so make it clear for admins
-            if(_mind.TryGetMind(uid, out var mindId, out _))
+            if (_mind.TryGetMind(uid, out var mindId, out _))
                 EnsureSubvertedSiliconRole(mindId);
-
         }
     }
 
     private void OnEmagLawsAdded(EntityUid uid, SiliconLawProviderComponent component, ref SiliconEmaggedEvent args)
     {
-        if (component.Lawset == null)
-            component.Lawset = GetLawset(component.Laws);
+        var builder = LawsetBuilder.FromInstance(GetLawset(component));
+
+        builder = AddEmagSecrecyLaw(builder);
+        builder = AddEmagObeysToOverrideLaw(builder, args.user);
+
+        component.Lawset = builder.Build();
 
         // Show the silicon has been subverted.
         component.Subverted = true;
-
-        // Add the first emag law before the others
-        component.Lawset?.Laws.Insert(0, new SiliconLaw
-        {
-            LawString = Loc.GetString("law-emag-custom", ("name", Name(args.user)), ("title", Loc.GetString(component.Lawset.ObeysTo))),
-            Order = 0
-        });
-
-        //Add the secrecy law after the others
-        component.Lawset?.Laws.Add(new SiliconLaw
-        {
-            LawString = Loc.GetString("law-emag-secrecy", ("faction", Loc.GetString(component.Lawset.ObeysTo))),
-            Order = component.Lawset.Laws.Max(law => law.Order) + 1
-        });
     }
+
+    /// <summary>
+    /// Adds the Emag law that overrides the meaning of who the silicon obeys to with the emagger.
+    /// </summary>
+    /// <param name="lawsetBuilder">The lawset builder to which the law should be added.</param>
+    /// <param name="emaggedBy">The entity that used the emag.</param>
+    /// <returns>LawsetBuilder with the law added.</returns>
+    private LawsetBuilder AddEmagObeysToOverrideLaw(LawsetBuilder lawsetBuilder, EntityUid emaggedBy) =>
+        lawsetBuilder.InsertLaw
+        (
+            0,
+            "EmagCustom",
+            _prototype,
+            new()
+            {
+                ApplyLocstringParamsToLawString = new List<(string, object)>()
+                {
+                    ("name", Name(emaggedBy)),
+                    ("title", Loc.GetString(lawsetBuilder.ObeysTo))
+                }
+            }
+        );
+
+    /// <summary>
+    /// Adds the Emag secrecy law.
+    /// </summary>
+    /// <param name="lawsetBuilder">The lawset builder to which the law should be added.</param>
+    /// <returns></returns>
+    private LawsetBuilder AddEmagSecrecyLaw(LawsetBuilder lawsetBuilder) =>
+        lawsetBuilder.AddLaw
+        (
+            "EmagSecrecy",
+            _prototype,
+            new()
+            {
+                ApplyLocstringParamsToLawString = new List<(string, object)>()
+                {
+                    ("faction", Loc.GetString(lawsetBuilder.ObeysTo))
+                }
+            }
+        );
 
     protected override void EnsureSubvertedSiliconRole(EntityUid mindId)
     {
@@ -258,36 +284,23 @@ public sealed class SiliconLawSystem : SharedSiliconLawSystem
     }
 
     /// <summary>
-    /// Extract all the laws from a lawset's prototype ids.
+    /// Safely reads the silicon lawset taking into account the possibility that it may be uninitialized.
     /// </summary>
-    public SiliconLawset GetLawset(ProtoId<SiliconLawsetPrototype> lawset)
+    private SiliconLawset GetLawset(SiliconLawProviderComponent component)
     {
-        var proto = _prototype.Index(lawset);
-        var laws = new SiliconLawset()
-        {
-            Laws = new List<SiliconLaw>(proto.Laws.Count)
-        };
-        foreach (var law in proto.Laws)
-        {
-            laws.Laws.Add(_prototype.Index<SiliconLawPrototype>(law).ShallowClone());
-        }
-        laws.ObeysTo = proto.ObeysTo;
-
-        return laws;
+        component.Lawset ??= LawsetBuilder.FromPrototype(component.Laws, _prototype).Build();
+        return component.Lawset;
     }
 
     /// <summary>
     /// Set the laws of a silicon entity while notifying the player.
     /// </summary>
-    public void SetLaws(List<SiliconLaw> newLaws, EntityUid target, SoundSpecifier? cue = null)
+    public void SetLawset(SiliconLawset newLawset, EntityUid target, SoundSpecifier? cue = null)
     {
         if (!TryComp<SiliconLawProviderComponent>(target, out var component))
             return;
 
-        if (component.Lawset == null)
-            component.Lawset = new SiliconLawset();
-
-        component.Lawset.Laws = newLaws;
+        component.Lawset = newLawset;
         NotifyLawsChanged(target, cue);
     }
 
@@ -297,13 +310,13 @@ public sealed class SiliconLawSystem : SharedSiliconLawSystem
         if (!TryComp<SiliconLawProviderComponent>(args.Entity, out var provider))
             return;
 
-        var lawset = provider.Lawset ?? GetLawset(provider.Laws);
+        var lawset = GetLawset(provider);
 
         var query = EntityManager.CompRegistryQueryEnumerator(ent.Comp.Components);
 
         while (query.MoveNext(out var update))
         {
-            SetLaws(lawset.Laws, update, provider.LawUploadSound);
+            SetLawset(lawset, update, provider.LawUploadSound);
         }
     }
 }
@@ -328,9 +341,9 @@ public sealed class LawsCommand : ToolshedCommand
     {
         _law ??= GetSys<SiliconLawSystem>();
 
-        foreach (var law in _law.GetLaws(lawbound).Laws)
+        foreach (var law in _law.GetLaws(lawbound).ReadLawsetLaws())
         {
-            yield return $"law {law.LawIdentifierOverride ?? law.Order.ToString()}: {Loc.GetString(law.LawString)}";
+            yield return $"law {law.LawIdentifier}: {Loc.GetString(law.Law.LawString)}";
         }
     }
 }

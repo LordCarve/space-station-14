@@ -1014,7 +1014,7 @@ public sealed partial class AdminVerbSystem
                 }
 
                 EnsureComp<SiliconLawProviderComponent>(args.Target);
-                _siliconLawSystem.SetLaws(_siliconLawSystem.GetLawset(_crewsimovLawset).Laws, args.Target);
+                _siliconLawSystem.SetLawset(LawsetBuilder.FromPrototype(_crewsimovLawset, _prototypeManager).Build(), args.Target);
 
                 if (_mindSystem.TryGetMind(args.Target, out var mindId, out _))
                     _role.MindAddRole(mindId, _siliconMindRole);

@@ -12,7 +12,7 @@ public sealed class SiliconLawBoundUserInterface : BoundUserInterface
     [ViewVariables]
     private SiliconLawMenu? _menu;
     private EntityUid _owner;
-    private List<SiliconLaw>? _laws;
+    private SiliconLawset? _laws;
 
     public SiliconLawBoundUserInterface(EntityUid owner, Enum uiKey) : base(owner, uiKey)
     {
@@ -33,22 +33,11 @@ public sealed class SiliconLawBoundUserInterface : BoundUserInterface
         if (state is not SiliconLawBuiState msg)
             return;
 
-        if (_laws != null && _laws.Count == msg.Laws.Count)
-        {
-            var isSame = true;
-            foreach (var law in msg.Laws)
-            {
-                if (_laws.Contains(law))
-                    continue;
-                isSame = false;
-                break;
-            }
+        // No change since last invocation.
+        if (_laws != null && (_laws == msg.Laws || _laws.Equals(msg.Laws)))
+            return;
 
-            if (isSame)
-                return;
-        }
-
-        _laws = msg.Laws.ToList();
+        _laws = msg.Laws;
 
         _menu?.UpdateState(_owner, msg);
     }

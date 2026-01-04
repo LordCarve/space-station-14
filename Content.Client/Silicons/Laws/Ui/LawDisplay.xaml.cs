@@ -22,19 +22,34 @@ public sealed partial class LawDisplay : Control
 
     private static readonly TimeSpan PressCooldown = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// Explicit Order of this law, as understood by the Game Rules.
+    /// This information is provided for additional clarity in order to make relative importance of laws explicitly clear,
+    /// especially when corruption and/or other shenanigans are involved that make complicate reading it.
+    /// </summary>
+    public int LawOrder { get; private init; }
+
+    /// <summary>
+    /// How this law is identified in-character (i.e. "Law 1").
+    /// This is usually correlated with Order of the laws (their relative importance), but not always.
+    /// For roleplay-reasons they are not necessarily unique.
+    /// </summary>
+    public string LawIdentifier { get; private init; }
     public SiliconLaw Law { get; private init; }
     private readonly Dictionary<ChatChannelDescriptor, TimeSpan> _stateLawOnCooldownUntil = [];
 
-    public LawDisplay(SiliconLaw law, List<ChatChannelDescriptor> chatChannels)
+    public LawDisplay(int order, string identifier, SiliconLaw law, List<ChatChannelDescriptor> chatChannels)
     {
         RobustXamlLoader.Load(this);
         IoCManager.InjectDependencies(this);
 
+        LawOrder = order;
+        LawIdentifier = Loc.GetString("laws-ui-law-header", ("id", identifier));
         Law = law;
 
-        var (lawIdentifier, lawDescription) = ReadLawstrings();
-        LawNumberLabel.SetMarkup(lawIdentifier);
-        LawLabel.SetMarkup(lawDescription);
+        var lawBodyString = FormattedLawString();
+        LawNumberLabel.SetMarkup(LawIdentifier);
+        LawLabel.SetMarkup(lawBodyString);
 
         UpdateStateLawButtons(chatChannels);
     }
@@ -114,8 +129,8 @@ public sealed partial class LawDisplay : Control
         if (chatChannels.Count == 0)
             return;
 
-        var (lawIdentifier, lawDescription) = ReadLawstrings();
-        var stateLawMessage = $"{FormattedMessage.RemoveMarkupPermissive(lawIdentifier)}: {FormattedMessage.RemoveMarkupPermissive(lawDescription)}";
+        var lawBodyString = FormattedLawString();
+        var stateLawMessage = $"{FormattedMessage.RemoveMarkupPermissive(LawIdentifier)}: {FormattedMessage.RemoveMarkupPermissive(lawBodyString)}";
 
         foreach (var chatChannel in chatChannels)
             AddNewStateLawButton(stateLawMessage, chatChannel);
@@ -163,8 +178,8 @@ public sealed partial class LawDisplay : Control
         if (chatChannels.Count == 0)
             return;
 
-        var (lawIdentifier, lawDescription) = ReadLawstrings();
-        var stateLawMessage = $"{FormattedMessage.RemoveMarkupPermissive(lawIdentifier)}: {FormattedMessage.RemoveMarkupPermissive(lawDescription)}";
+        var lawBodyString = FormattedLawString();
+        var stateLawMessage = $"{FormattedMessage.RemoveMarkupPermissive(LawIdentifier)}: {FormattedMessage.RemoveMarkupPermissive(lawBodyString)}";
 
         for (var i = 0; i < chatChannels.Count; i++)
         {
@@ -197,14 +212,11 @@ public sealed partial class LawDisplay : Control
         return button;
     }
 
-    private (string lawIdentifier, string lawDescription) ReadLawstrings() =>
-        (Loc.GetString("laws-ui-law-header", ("id", Law.LawIdentifierOverride ?? $"{Law.Order}")), ReadFormattedLaw(Law));
-
-    private string ReadFormattedLaw(SiliconLaw law)
+    private string FormattedLawString()
     {
-        var raw = Loc.GetString(law.LawString);
+        var raw = Loc.GetString(Law.LawString);
 
-        if (!_proto.TryIndex(law.LawFormat, out var lawFormat))
+        if (!_proto.TryIndex(Law.LawFormat, out var lawFormat))
             return raw;
 
         return lawFormat.ApplyFormat(raw);

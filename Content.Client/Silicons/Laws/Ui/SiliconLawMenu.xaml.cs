@@ -25,12 +25,11 @@ public sealed partial class SiliconLawMenu : FancyWindow
     public void UpdateState(EntityUid uid, SiliconLawBuiState state)
     {
         var muted = !_entityManager.TryGetComponent<SpeechComponent>(uid, out var speech) || speech.SpeechSounds is null;
-        var laws = state.Laws;
-        laws.Sort();
+        var lawset = state.Laws;
 
         if (muted)
         {
-            UpdateLawDisplays(laws, []);
+            UpdateLawDisplays(lawset, []);
             return;
         }
 
@@ -41,7 +40,7 @@ public sealed partial class SiliconLawMenu : FancyWindow
 
         if (state.RadioChannels is null)
         {
-            UpdateLawDisplays(laws, chatChannels);
+            UpdateLawDisplays(lawset, chatChannels);
             return;
         }
 
@@ -49,24 +48,24 @@ public sealed partial class SiliconLawMenu : FancyWindow
             if (_prototypeManager.Resolve(radioChannel, out var radioChannelProto))
                 chatChannels.Add(ChatChannelDescriptor.Radio(radioChannelProto, radioChannel == SharedChatSystem.CommonChannel));
 
-        UpdateLawDisplays(laws, chatChannels);
+        UpdateLawDisplays(lawset, chatChannels);
     }
 
-    private void UpdateLawDisplays(List<SiliconLaw> laws, List<ChatChannelDescriptor> chatChannels, bool forceRedraw = false)
+    private void UpdateLawDisplays(SiliconLawset lawset, List<ChatChannelDescriptor> chatChannels, bool forceRedraw = false)
     {
         if (forceRedraw)
-            RedrawLawDisplays(laws, chatChannels);
+            RedrawLawDisplays(lawset, chatChannels);
         else
-            PatchLawDisplays(laws, chatChannels);
+            PatchLawDisplays(lawset, chatChannels);
     }
 
     /// <summary>
     /// Base update UI variant. Clears old law displays and draws new.
     /// When in doubt - use this.
     /// </summary>
-    private void RedrawLawDisplays(List<SiliconLaw> laws, List<ChatChannelDescriptor> chatChannels)
+    private void RedrawLawDisplays(SiliconLawset lawset, List<ChatChannelDescriptor> chatChannels)
     {
-        if (laws.Count == 0 && LawDisplayContainer.ChildCount == 0)
+        if (lawset.Laws.Count == 0 && LawDisplayContainer.ChildCount == 0)
         {
             // Nothing to show and nothing to clear.
             return;
@@ -74,23 +73,23 @@ public sealed partial class SiliconLawMenu : FancyWindow
 
         LawDisplayContainer.RemoveAllChildren();
 
-        foreach (var law in laws)
-            LawDisplayContainer.AddChild(new LawDisplay(law, chatChannels));
+        foreach (var (order, identifier, law) in lawset.ReadLawsetLaws())
+            LawDisplayContainer.AddChild(new LawDisplay(order, identifier, law, chatChannels));
     }
 
     /// <summary>
     /// Optimized update UI variant.
     /// Calculates a net delta change and only redraws what needs to be redrawn.
     /// </summary>
-    private void PatchLawDisplays(List<SiliconLaw> laws, List<ChatChannelDescriptor> chatChannels)
+    private void PatchLawDisplays(SiliconLawset lawset, List<ChatChannelDescriptor> chatChannels)
     {
-        if (laws.Count == 0 && LawDisplayContainer.ChildCount == 0)
+        if (lawset.Laws.Count == 0 && LawDisplayContainer.ChildCount == 0)
         {
             // Nothing to show and nothing to clear.
             return;
         }
 
-        var lawsToSeekMatchFor = new List<SiliconLaw>(laws);
+        var lawsToSeekMatchFor = new List<SiliconLaw>(lawset.Laws);
         var validLawDisplays = new Dictionary<SiliconLaw, LawDisplay>(LawDisplayContainer.ChildCount);
         var nonReusableControls = new List<Robust.Client.UserInterface.Control>(LawDisplayContainer.ChildCount);
         foreach (var lawDisplayContainerChild in LawDisplayContainer.Children)
@@ -123,9 +122,10 @@ public sealed partial class SiliconLawMenu : FancyWindow
         foreach (var nonReusableControl in nonReusableControls)
             LawDisplayContainer.RemoveChild(nonReusableControl);
 
+        var laws = lawset.ReadLawsetLaws();
         for (var i = 0; i < laws.Count; i++)
         {
-            var law = laws[i];
+            var (order, identifier, law) = laws[i];
 
             if (validLawDisplays.TryGetValue(law, out var thisLawDisplay))
             {
@@ -134,7 +134,7 @@ public sealed partial class SiliconLawMenu : FancyWindow
             }
             else
             {
-                var control = new LawDisplay(law, chatChannels);
+                var control = new LawDisplay(order, identifier, law, chatChannels);
 
                 LawDisplayContainer.AddChild(control);
                 control.SetPositionInParent(i);

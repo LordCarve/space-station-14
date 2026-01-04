@@ -1,7 +1,6 @@
 using Content.Shared.Administration.Logs;
 using Content.Shared.Database;
 using Content.Shared.Dataset;
-using Content.Shared.FixedPoint;
 using Content.Shared.Random;
 using Content.Shared.Random.Helpers;
 using Content.Shared.Silicons.Laws;
@@ -9,7 +8,6 @@ using Content.Shared.Silicons.Laws.Components;
 using Content.Shared.Silicons.Laws.LawFormats;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
-using System.Linq;
 
 namespace Content.Server.Silicons.Laws;
 
@@ -59,95 +57,71 @@ public sealed class IonStormSystem : EntitySystem
         if (laws.Laws.Count == 0)
             return;
 
-        // try to swap it out with a random lawset
-        if (_robustRandom.Prob(target.RandomLawsetChance))
-        {
-            var lawsets = _proto.Index<WeightedRandomPrototype>(target.RandomLawsets);
-            var lawset = lawsets.Pick(_robustRandom);
-            laws = _siliconLaw.GetLawset(lawset);
-        }
-        // clone it so not modifying stations lawset
-        laws = laws.Clone();
-
-        // shuffle them all
-        if (_robustRandom.Prob(target.ShuffleChance))
-        {
-            // hopefully work with existing glitched laws if there are multiple ion storms
-            var baseOrder = FixedPoint2.New(1);
-            foreach (var law in laws.Laws)
-            {
-                if (law.Order < baseOrder)
-                    baseOrder = law.Order;
-            }
-
-            _robustRandom.Shuffle(laws.Laws);
-
-            // change order based on shuffled position
-            for (int i = 0; i < laws.Laws.Count; i++)
-            {
-                laws.Laws[i].Order = baseOrder + i;
-            }
-        }
-
-        // see if we can remove a random law
-        if (laws.Laws.Count > 0 && _robustRandom.Prob(target.RemoveChance))
-        {
-            var i = _robustRandom.Next(laws.Laws.Count);
-            laws.Laws.RemoveAt(i);
-        }
-
-        // generate a new law...
-        var corruptedLawString = GenerateLaw();
-        var corruptedLawFormat = PickFormatCorruption(possibleFormatCorruptions);
-
-        // see if the law we add will replace a random existing law or be a new glitched order one
-        if (laws.Laws.Count > 0 && _robustRandom.Prob(target.ReplaceChance))
-        {
-            var i = _robustRandom.Next(laws.Laws.Count);
-            laws.Laws[i] = new SiliconLaw()
-            {
-                LawString = corruptedLawString,
-                LawFormat = corruptedLawFormat,
-                Order = laws.Laws[i].Order
-            };
-        }
-        else
-        {
-            laws.Laws.Insert(0, new SiliconLaw
-            {
-                LawString = corruptedLawString,
-                LawFormat = corruptedLawFormat,
-                Order = -1,
-                LawIdentifierOverride = Loc.GetString("ion-storm-law-scrambled-number", ("length", _robustRandom.Next(5, 10)))
-            });
-        }
-
-        // sets all unobfuscated laws' indentifier in order from highest to lowest priority
-        // This could technically override the Obfuscation from the code above, but it seems unlikely enough to basically never happen
-        int orderDeduction = -1;
-
-        for (int i = 0; i < laws.Laws.Count; i++)
-        {
-            var notNullIdentifier = laws.Laws[i].LawIdentifierOverride ?? (i - orderDeduction).ToString();
-
-            if (notNullIdentifier.Any(char.IsSymbol))
-            {
-                orderDeduction += 1;
-            }
-            else
-            {
-                laws.Laws[i].LawIdentifierOverride = (i - orderDeduction).ToString();
-            }
-        }
+        var ionStormedLawset = ApplyIonStormEffect(laws, target, possibleFormatCorruptions);
 
         // adminlog is used to prevent adminlog spam.
         if (adminlog)
-            _adminLogger.Add(LogType.Mind, LogImpact.High, $"{ToPrettyString(ent):silicon} had its laws changed by an ion storm to {laws.LoggingString()}");
+            _adminLogger.Add(LogType.Mind, LogImpact.High, $"{ToPrettyString(ent):silicon} had its laws changed by an ion storm to {ionStormedLawset.LoggingString()}");
 
         // laws unique to this silicon, dont use station laws anymore
         EnsureComp<SiliconLawProviderComponent>(ent);
-        var ev = new IonStormLawsEvent(laws);
+        var ev = new IonStormLawsEvent(ionStormedLawset);
         RaiseLocalEvent(ent, ref ev);
+    }
+
+    /// <summary>
+    /// Takes a starting lawset, applies various ion-storming rules, and outputs a new ion-stormed lawset.
+    /// </summary>
+    /// <param name="startingLawset">Starting lawset to which ion-storm effect will be applied.</param>
+    /// <param name="target">Target's <see cref="IonStormTargetComponent"/>. Needed to retrieve effect chance probabilities.</param>
+    /// <param name="possibleFormatCorruptions">Format corruptions that may be selected for the newly generated law.</param>
+    /// <returns>Ion-stormed lawset - the result of applying ion-storm rules to the starting lawset.</returns>
+    private SiliconLawset ApplyIonStormEffect(SiliconLawset startingLawset, IonStormTargetComponent target, ProtoId<WeightedRandomPrototype>? possibleFormatCorruptions)
+    {
+        // Do we start with a random lawset, or do we modify the current one?
+        var ionStormedLawsetBuilder = _robustRandom.Prob(target.RandomLawsetChance)
+            ? LawsetBuilder.FromPrototype((ProtoId<SiliconLawsetPrototype>)_proto.Index(target.RandomLawsets).Pick(_robustRandom), _proto)
+            : LawsetBuilder.FromInstance(startingLawset);
+
+        // Maybe shuffle all laws?
+        if (_robustRandom.Prob(target.ShuffleChance))
+            ionStormedLawsetBuilder.Shuffle(_robustRandom);
+
+        // Maybe remove a random law?
+        if (_robustRandom.Prob(target.RemoveChance))
+            ionStormedLawsetBuilder.RemoveLaw(_robustRandom);
+
+        // Generate a new law
+        var corruptedLawString = GenerateLaw();
+        var corruptedLawFormat = PickFormatCorruption(possibleFormatCorruptions);
+
+        // Does the new law replace a random existing law...
+        if (ionStormedLawsetBuilder.Laws.Count > 0 && _robustRandom.Prob(target.ReplaceChance))
+        {
+            var i = _robustRandom.Next(ionStormedLawsetBuilder.Laws.Count);
+            var replacementThatMaintainsIdentifier = new SiliconLaw()
+            {
+                LawString = corruptedLawString,
+                LawFormat = corruptedLawFormat,
+                AutonumberingExempt = ionStormedLawsetBuilder.Laws[i].AutonumberingExempt,
+                CustomIdentifier = ionStormedLawsetBuilder.Laws[i].CustomIdentifier
+            };
+            ionStormedLawsetBuilder.ReplaceLaw(i, replacementThatMaintainsIdentifier);
+        }
+        // or is it a new one with a glitched identifier?
+        else
+        {
+            var lawWithGlitchedIdentifier = new SiliconLaw()
+            {
+                LawString = corruptedLawString,
+                LawFormat = corruptedLawFormat,
+                AutonumberingExempt = true,
+                CustomIdentifier = Loc.GetString("ion-storm-law-scrambled-number", ("length", _robustRandom.Next(5, 10)))
+            };
+            ionStormedLawsetBuilder.InsertLaw(0, lawWithGlitchedIdentifier);
+        }
+
+        return ionStormedLawsetBuilder.Build();
     }
 
     // for your own sake direct your eyes elsewhere
@@ -219,16 +193,16 @@ public sealed class IonStormSystem : EntitySystem
         // message logic!!!
         return _robustRandom.Next(0, 35) switch
         {
-            0  => Loc.GetString("ion-storm-law-on-station", ("joined", joined), ("subjects", triple)),
-            1  => Loc.GetString("ion-storm-law-call-shuttle", ("joined", joined), ("subjects", triple)),
-            2  => Loc.GetString("ion-storm-law-crew-are", ("who", crewAll), ("joined", joined), ("subjects", objectsThreats)),
-            3  => Loc.GetString("ion-storm-law-subjects-harmful", ("adjective", adjective), ("subjects", triple)),
-            4  => Loc.GetString("ion-storm-law-must-harmful", ("must", must)),
-            5  => Loc.GetString("ion-storm-law-thing-harmful", ("thing", _robustRandom.Prob(0.5f) ? concept : action)),
-            6  => Loc.GetString("ion-storm-law-job-harmful", ("adjective", adjective), ("job", crew1)),
-            7  => Loc.GetString("ion-storm-law-having-harmful", ("adjective", adjective), ("thing", objectsConcept)),
-            8  => Loc.GetString("ion-storm-law-not-having-harmful", ("adjective", adjective), ("thing", objectsConcept)),
-            9  => Loc.GetString("ion-storm-law-requires", ("who", who), ("plural", plural), ("thing", _robustRandom.Prob(0.5f) ? concept : require)),
+            0 => Loc.GetString("ion-storm-law-on-station", ("joined", joined), ("subjects", triple)),
+            1 => Loc.GetString("ion-storm-law-call-shuttle", ("joined", joined), ("subjects", triple)),
+            2 => Loc.GetString("ion-storm-law-crew-are", ("who", crewAll), ("joined", joined), ("subjects", objectsThreats)),
+            3 => Loc.GetString("ion-storm-law-subjects-harmful", ("adjective", adjective), ("subjects", triple)),
+            4 => Loc.GetString("ion-storm-law-must-harmful", ("must", must)),
+            5 => Loc.GetString("ion-storm-law-thing-harmful", ("thing", _robustRandom.Prob(0.5f) ? concept : action)),
+            6 => Loc.GetString("ion-storm-law-job-harmful", ("adjective", adjective), ("job", crew1)),
+            7 => Loc.GetString("ion-storm-law-having-harmful", ("adjective", adjective), ("thing", objectsConcept)),
+            8 => Loc.GetString("ion-storm-law-not-having-harmful", ("adjective", adjective), ("thing", objectsConcept)),
+            9 => Loc.GetString("ion-storm-law-requires", ("who", who), ("plural", plural), ("thing", _robustRandom.Prob(0.5f) ? concept : require)),
             10 => Loc.GetString("ion-storm-law-requires-subjects", ("who", who), ("plural", plural), ("joined", joined), ("subjects", triple)),
             11 => Loc.GetString("ion-storm-law-allergic", ("who", who), ("plural", plural), ("severity", allergySeverity), ("allergy", _robustRandom.Prob(0.5f) ? concept : allergy)),
             12 => Loc.GetString("ion-storm-law-allergic-subjects", ("who", who), ("plural", plural), ("severity", allergySeverity), ("adjective", adjective), ("subjects", _robustRandom.Prob(0.5f) ? objects : crew1)),

@@ -10,13 +10,15 @@ namespace Content.Shared.Silicons.Laws.Components;
 public sealed partial class SiliconLawProviderComponent : Component
 {
     /// <summary>
-    /// The id of the lawset that is being provided.
+    /// The id of the original lawset that should be provided by this component.
+    /// Note that this should only be used to reference the original unaltered lawset of this silicon.
+    /// For example when initializing for the first time, or to restore the original lawset (factory reset).
     /// </summary>
     [DataField(required: true)]
     public ProtoId<SiliconLawsetPrototype> Laws = string.Empty;
 
     /// <summary>
-    /// Lawset created from the prototype id.
+    /// The actual lawset as created from the prototype id.
     /// Cached when getting laws and modified during an ion storm event and when emagged.
     /// </summary>
     [DataField, ViewVariables(VVAccess.ReadWrite)]

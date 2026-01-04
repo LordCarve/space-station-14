@@ -35,11 +35,11 @@ public sealed partial class SiliconLawContainer : BoxContainer
         {
             if (Corrupted.Pressed)
             {
-                _law!.LawIdentifierOverride = CorruptedString;
+                _law!.CustomIdentifier = CorruptedString;
             }
             else
             {
-                _law!.LawIdentifierOverride = null;
+                _law!.CustomIdentifier = null;
             }
         };
 
@@ -53,12 +53,13 @@ public sealed partial class SiliconLawContainer : BoxContainer
         Delete.OnPressed += _ => DeleteAction?.Invoke(_law!);
     }
 
-    public void SetLaw(SiliconLaw law)
+    public void SetLaw(SiliconLaw law, string identifier)
     {
         _law = law;
         LawContent.TextRope = new Rope.Leaf(Loc.GetString(law.LawString));
-        PositionText.Text = law.Order.ToString();
-        if (!string.IsNullOrEmpty(law.LawIdentifierOverride))
+        PositionText.Text = identifier;
+        // TODO: The below is not accurate
+        if (!string.IsNullOrEmpty(law.CustomIdentifier))
         {
             Corrupted.Pressed = true;
         }
